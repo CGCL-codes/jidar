@@ -12,14 +12,15 @@ import (
 	"github.com/btcsuite/btcutil"
 )
 
-// blockProgressLogger provides periodic logging for other services in order
+// BlockProgressLogger provides periodic logging for other services in order
 // to show users progress of certain "actions" involving some or all current
 // blocks. Ex: syncing to best chain, indexing all blocks, etc.
-type blockProgressLogger struct {
+type BlockProgressLogger struct {
 	receivedLogBlocks int64
 	receivedLogTx     int64
 	lastBlockLogTime  time.Time
 
+	AccumValidationDuration	time.Duration
 	subsystemLogger btclog.Logger
 	progressAction  string
 	sync.Mutex
@@ -29,8 +30,8 @@ type blockProgressLogger struct {
 // The progress message is templated as follows:
 //  {progressAction} {numProcessed} {blocks|block} in the last {timePeriod}
 //  ({numTxs}, height {lastBlockHeight}, {lastBlockTimeStamp})
-func newBlockProgressLogger(progressMessage string, logger btclog.Logger) *blockProgressLogger {
-	return &blockProgressLogger{
+func newBlockProgressLogger(progressMessage string, logger btclog.Logger) *BlockProgressLogger {
+	return &BlockProgressLogger{
 		lastBlockLogTime: time.Now(),
 		progressAction:   progressMessage,
 		subsystemLogger:  logger,
@@ -40,7 +41,7 @@ func newBlockProgressLogger(progressMessage string, logger btclog.Logger) *block
 // LogBlockHeight logs a new block height as an information message to show
 // progress to the user. In order to prevent spam, it limits logging to one
 // message every 10 seconds with duration and totals included.
-func (b *blockProgressLogger) LogBlockHeight(block *btcutil.Block) {
+func (b *BlockProgressLogger) LogBlockHeight(block *btcutil.Block) {
 	b.Lock()
 	defer b.Unlock()
 

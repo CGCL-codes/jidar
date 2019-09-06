@@ -6,6 +6,7 @@ package blockchain
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/btcsuite/btcd/database"
 	"github.com/btcsuite/btcutil"
@@ -21,17 +22,17 @@ import (
 // their documentation for how the flags modify their behavior.
 //
 // This function MUST be called with the chain state lock held (for writes).
-func (b *BlockChain) maybeAcceptBlock(block *btcutil.Block, flags BehaviorFlags) (bool, error) {
+func (b *BlockChain) maybeAcceptBlock(block *btcutil.Block, flags BehaviorFlags) (bool, time.Duration, error) {
 	// The height of this block is one more than the referenced previous
 	// block.
 	prevHash := &block.MsgBlock().Header.PrevBlock
 	prevNode := b.index.LookupNode(prevHash)
 	if prevNode == nil {
 		str := fmt.Sprintf("previous block %s is unknown", prevHash)
-		return false, ruleError(ErrPreviousBlockUnknown, str)
+		return false, 0, ruleError(ErrPreviousBlockUnknown, str)
 	} else if b.index.NodeStatus(prevNode).KnownInvalid() {
 		str := fmt.Sprintf("previous block %s is known to be invalid", prevHash)
-		return false, ruleError(ErrInvalidAncestorBlock, str)
+		return false, 0, ruleError(ErrInvalidAncestorBlock, str)
 	}
 
 	blockHeight := prevNode.height + 1
@@ -41,7 +42,7 @@ func (b *BlockChain) maybeAcceptBlock(block *btcutil.Block, flags BehaviorFlags)
 	// position of the block within the block chain.
 	err := b.checkBlockContext(block, prevNode, flags)
 	if err != nil {
-		return false, err
+		return false, 0, err
 	}
 
 	// Insert the block into the database if it's not already there.  Even
@@ -57,7 +58,7 @@ func (b *BlockChain) maybeAcceptBlock(block *btcutil.Block, flags BehaviorFlags)
 		return dbStoreBlock(dbTx, block)
 	})
 	if err != nil {
-		return false, err
+		return false, 0, err
 	}
 
 	// Create a new block node for the block and add it to the node index. Even
@@ -70,15 +71,15 @@ func (b *BlockChain) maybeAcceptBlock(block *btcutil.Block, flags BehaviorFlags)
 	b.index.AddNode(newNode)
 	err = b.index.flushToDB()
 	if err != nil {
-		return false, err
+		return false, 0, err
 	}
 
 	// Connect the passed block to the chain while respecting proper chain
 	// selection according to the chain with the most proof of work.  This
 	// also handles validation of the transaction scripts.
-	isMainChain, err := b.connectBestChain(newNode, block, flags)
+	isMainChain, duration, err := b.connectBestChain(newNode, block, flags)
 	if err != nil {
-		return false, err
+		return false, 0, err
 	}
 
 	// Notify the caller that the new block was accepted into the block
@@ -88,5 +89,5 @@ func (b *BlockChain) maybeAcceptBlock(block *btcutil.Block, flags BehaviorFlags)
 	b.sendNotification(NTBlockAccepted, block)
 	b.chainLock.Lock()
 
-	return isMainChain, nil
+	return isMainChain, duration, nil
 }

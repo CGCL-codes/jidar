@@ -1082,7 +1082,7 @@ func (b *BlockChain) reorganizeChain(detachNodes, attachNodes *list.List) error 
 //    This is useful when using checkpoints.
 //
 // This function MUST be called with the chain state lock held (for writes).
-func (b *BlockChain) connectBestChain(node *blockNode, block *btcutil.Block, flags BehaviorFlags) (bool, error) {
+func (b *BlockChain) connectBestChain(node *blockNode, block *btcutil.Block, flags BehaviorFlags) (bool, time.Duration, error) {
 	fastAdd := flags&BFFastAdd == BFFastAdd
 
 	flushIndexState := func() {
@@ -1103,6 +1103,7 @@ func (b *BlockChain) connectBestChain(node *blockNode, block *btcutil.Block, fla
 		// Skip checks if node has already been fully validated.
 		fastAdd = fastAdd || b.index.NodeStatus(node).KnownValid()
 
+		startTime := time.Now()
 		// Perform several checks to verify the block can be connected
 		// to the main chain without violating any rules and without
 		// actually connecting the block.
@@ -1116,13 +1117,13 @@ func (b *BlockChain) connectBestChain(node *blockNode, block *btcutil.Block, fla
 			} else if _, ok := err.(RuleError); ok {
 				b.index.SetStatusFlags(node, statusValidateFailed)
 			} else {
-				return false, err
+				return false, 0, err
 			}
 
 			flushIndexState()
 
 			if err != nil {
-				return false, err
+				return false, 0, err
 			}
 		}
 
@@ -1133,11 +1134,11 @@ func (b *BlockChain) connectBestChain(node *blockNode, block *btcutil.Block, fla
 		if fastAdd {
 			err := view.fetchInputUtxos(b.db, block)
 			if err != nil {
-				return false, err
+				return false, 0, err
 			}
 			err = view.connectTransactions(block, &stxos)
 			if err != nil {
-				return false, err
+				return false, 0, err
 			}
 		}
 
@@ -1155,7 +1156,7 @@ func (b *BlockChain) connectBestChain(node *blockNode, block *btcutil.Block, fla
 
 			flushIndexState()
 
-			return false, err
+			return false, 0, err
 		}
 
 		// If this is fast add, or this block node isn't yet marked as
@@ -1166,7 +1167,7 @@ func (b *BlockChain) connectBestChain(node *blockNode, block *btcutil.Block, fla
 			flushIndexState()
 		}
 
-		return true, nil
+		return true, time.Now().Sub(startTime), nil
 	}
 	if fastAdd {
 		log.Warnf("fastAdd set in the side chain case? %v\n",
@@ -1188,7 +1189,7 @@ func (b *BlockChain) connectBestChain(node *blockNode, block *btcutil.Block, fla
 				node.hash, fork.height, fork.hash)
 		}
 
-		return false, nil
+		return false, 0, nil
 	}
 
 	// We're extending (or creating) a side chain and the cumulative work
@@ -1212,7 +1213,7 @@ func (b *BlockChain) connectBestChain(node *blockNode, block *btcutil.Block, fla
 		log.Warnf("Error flushing block index changes to disk: %v", writeErr)
 	}
 
-	return err == nil, err
+	return err == nil, 0, err
 }
 
 // isCurrent returns whether or not the chain believes it is current.  Several

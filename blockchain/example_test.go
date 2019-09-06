@@ -59,7 +59,7 @@ func ExampleBlockChain_ProcessBlock() {
 	// cause an error by trying to process the genesis block which already
 	// exists.
 	genesisBlock := btcutil.NewBlock(chaincfg.MainNetParams.GenesisBlock)
-	isMainChain, isOrphan, err := chain.ProcessBlock(genesisBlock,
+	isMainChain, isOrphan, _, err := chain.ProcessBlock(genesisBlock,
 		blockchain.BFNone)
 	if err != nil {
 		fmt.Printf("Failed to process block: %v\n", err)
