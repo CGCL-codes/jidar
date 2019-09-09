@@ -682,7 +682,7 @@ func (sm *SyncManager) handleBlockMsg(bmsg *blockMsg) {
 
 	// Process the block to include validation, best chain selection, orphan
 	// handling, etc.
-	_, isOrphan, duration, err := sm.chain.ProcessBlock(bmsg.block, behaviorFlags)
+	_, isOrphan, duration, merkleBuildDuration, err := sm.chain.ProcessBlock(bmsg.block, behaviorFlags)
 	if err != nil {
 		// When the error is a rule error, it means the block was simply
 		// rejected as opposed to something actually going wrong, so log
@@ -708,6 +708,7 @@ func (sm *SyncManager) handleBlockMsg(bmsg *blockMsg) {
 	}
 
 	sm.progressLogger.AccumValidationDuration += duration
+	sm.progressLogger.MerkleBuildDuration += merkleBuildDuration
 
 	// Meta-data about the new block this peer is reporting. We use this
 	// below to update this peer's latest block height and the heights of
@@ -1308,7 +1309,7 @@ out:
 				msg.reply <- peerID
 
 			case processBlockMsg:
-				_, isOrphan, _, err := sm.chain.ProcessBlock(
+				_, isOrphan, _, _, err := sm.chain.ProcessBlock(
 					msg.block, msg.flags)
 				if err != nil {
 					msg.reply <- processBlockResponse{

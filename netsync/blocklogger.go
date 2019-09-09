@@ -21,6 +21,7 @@ type BlockProgressLogger struct {
 	lastBlockLogTime  time.Time
 
 	AccumValidationDuration	time.Duration
+	MerkleBuildDuration time.Duration
 	subsystemLogger btclog.Logger
 	progressAction  string
 	sync.Mutex
@@ -71,13 +72,14 @@ func (b *BlockProgressLogger) LogBlockHeight(block *btcutil.Block) {
 		b.progressAction, b.receivedLogBlocks, blockStr, tDuration, b.receivedLogTx,
 		txStr, block.Height(), block.MsgBlock().Header.Timestamp)
 
-	b.subsystemLogger.Infof("In the last %s, %s is used to validate UTXO",
-		tDuration, b.AccumValidationDuration)
+	b.subsystemLogger.Infof("In the last %s, %s is used to validate UTXO, %s is used to build Merkle tree",
+		tDuration, b.AccumValidationDuration, b.MerkleBuildDuration)
 
 	b.receivedLogBlocks = 0
 	b.receivedLogTx = 0
 	b.lastBlockLogTime = now
 	b.AccumValidationDuration = 0
+	b.MerkleBuildDuration = 0
 }
 
 func (b *BlockProgressLogger) SetLastLogTime(time time.Time) {

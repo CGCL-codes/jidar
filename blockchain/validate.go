@@ -464,18 +464,18 @@ func checkBlockHeaderSanity(header *wire.BlockHeader, powLimit *big.Int, timeSou
 //
 // The flags do not modify the behavior of this function directly, however they
 // are needed to pass along to checkBlockHeaderSanity.
-func checkBlockSanity(block *btcutil.Block, powLimit *big.Int, timeSource MedianTimeSource, flags BehaviorFlags) error {
+func checkBlockSanity(block *btcutil.Block, powLimit *big.Int, timeSource MedianTimeSource, flags BehaviorFlags) (time.Duration, error) {
 	msgBlock := block.MsgBlock()
 	header := &msgBlock.Header
 	err := checkBlockHeaderSanity(header, powLimit, timeSource, flags)
 	if err != nil {
-		return err
+		return 0, err
 	}
 
 	// A block must have at least one transaction.
 	numTx := len(msgBlock.Transactions)
 	if numTx == 0 {
-		return ruleError(ErrNoTransactions, "block does not contain "+
+		return 0, ruleError(ErrNoTransactions, "block does not contain "+
 			"any transactions")
 	}
 
@@ -484,7 +484,7 @@ func checkBlockSanity(block *btcutil.Block, powLimit *big.Int, timeSource Median
 	if numTx > MaxBlockBaseSize {
 		str := fmt.Sprintf("block contains too many transactions - "+
 			"got %d, max %d", numTx, MaxBlockBaseSize)
-		return ruleError(ErrBlockTooBig, str)
+		return 0, ruleError(ErrBlockTooBig, str)
 	}
 
 	// A block must not exceed the maximum allowed block payload when
@@ -493,13 +493,13 @@ func checkBlockSanity(block *btcutil.Block, powLimit *big.Int, timeSource Median
 	if serializedSize > MaxBlockBaseSize {
 		str := fmt.Sprintf("serialized block is too big - got %d, "+
 			"max %d", serializedSize, MaxBlockBaseSize)
-		return ruleError(ErrBlockTooBig, str)
+		return 0, ruleError(ErrBlockTooBig, str)
 	}
 
 	// The first transaction in a block must be a coinbase.
 	transactions := block.Transactions()
 	if !IsCoinBase(transactions[0]) {
-		return ruleError(ErrFirstTxNotCoinbase, "first transaction in "+
+		return 0, ruleError(ErrFirstTxNotCoinbase, "first transaction in "+
 			"block is not a coinbase")
 	}
 
@@ -508,7 +508,7 @@ func checkBlockSanity(block *btcutil.Block, powLimit *big.Int, timeSource Median
 		if IsCoinBase(tx) {
 			str := fmt.Sprintf("block contains second coinbase at "+
 				"index %d", i+1)
-			return ruleError(ErrMultipleCoinbases, str)
+			return 0, ruleError(ErrMultipleCoinbases, str)
 		}
 	}
 
@@ -517,7 +517,7 @@ func checkBlockSanity(block *btcutil.Block, powLimit *big.Int, timeSource Median
 	for _, tx := range transactions {
 		err := CheckTransactionSanity(tx)
 		if err != nil {
-			return err
+			return 0, err
 		}
 	}
 
@@ -527,13 +527,15 @@ func checkBlockSanity(block *btcutil.Block, powLimit *big.Int, timeSource Median
 	// checks.  Bitcoind builds the tree here and checks the merkle root
 	// after the following checks, but there is no reason not to check the
 	// merkle root matches here.
+	startTime := time.Now()
 	merkles := BuildMerkleTreeStore(block.Transactions(), false)
+	duration := time.Now().Sub(startTime)
 	calculatedMerkleRoot := merkles[len(merkles)-1]
 	if !header.MerkleRoot.IsEqual(calculatedMerkleRoot) {
 		str := fmt.Sprintf("block merkle root is invalid - block "+
 			"header indicates %v, but calculated value is %v",
 			header.MerkleRoot, calculatedMerkleRoot)
-		return ruleError(ErrBadMerkleRoot, str)
+		return 0, ruleError(ErrBadMerkleRoot, str)
 	}
 
 	// Check for duplicate transactions.  This check will be fairly quick
@@ -545,7 +547,7 @@ func checkBlockSanity(block *btcutil.Block, powLimit *big.Int, timeSource Median
 		if _, exists := existingTxHashes[*hash]; exists {
 			str := fmt.Sprintf("block contains duplicate "+
 				"transaction %v", hash)
-			return ruleError(ErrDuplicateTx, str)
+			return 0, ruleError(ErrDuplicateTx, str)
 		}
 		existingTxHashes[*hash] = struct{}{}
 	}
@@ -562,17 +564,18 @@ func checkBlockSanity(block *btcutil.Block, powLimit *big.Int, timeSource Median
 			str := fmt.Sprintf("block contains too many signature "+
 				"operations - got %v, max %v", totalSigOps,
 				MaxBlockSigOpsCost)
-			return ruleError(ErrTooManySigOps, str)
+			return 0, ruleError(ErrTooManySigOps, str)
 		}
 	}
 
-	return nil
+	return duration, nil
 }
 
 // CheckBlockSanity performs some preliminary checks on a block to ensure it is
 // sane before continuing with block processing.  These checks are context free.
 func CheckBlockSanity(block *btcutil.Block, powLimit *big.Int, timeSource MedianTimeSource) error {
-	return checkBlockSanity(block, powLimit, timeSource, BFNone)
+	_, err := checkBlockSanity(block, powLimit, timeSource, BFNone)
+	return err
 }
 
 // ExtractCoinbaseHeight attempts to extract the height of the block from the
@@ -1260,7 +1263,7 @@ func (b *BlockChain) CheckConnectBlockTemplate(block *btcutil.Block) error {
 		return ruleError(ErrPrevBlockNotBest, str)
 	}
 
-	err := checkBlockSanity(block, b.chainParams.PowLimit, b.timeSource, flags)
+	_, err := checkBlockSanity(block, b.chainParams.PowLimit, b.timeSource, flags)
 	if err != nil {
 		return err
 	}
