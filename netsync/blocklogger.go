@@ -85,3 +85,7 @@ func (b *BlockProgressLogger) LogBlockHeight(block *btcutil.Block) {
 func (b *BlockProgressLogger) SetLastLogTime(time time.Time) {
 	b.lastBlockLogTime = time
 }
+
+func (b *BlockProgressLogger) ResetAccumValidationDuration() {
+	b.AccumValidationDuration = 0
+}

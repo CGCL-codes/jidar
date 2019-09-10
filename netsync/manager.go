@@ -981,6 +981,7 @@ func (sm *SyncManager) handleHeadersMsg(hmsg *headersMsg) {
 		log.Infof("Received %v block headers: Fetching blocks",
 			sm.headerList.Len())
 		sm.progressLogger.SetLastLogTime(time.Now())
+		sm.progressLogger.ResetAccumValidationDuration()
 		sm.fetchHeaderBlocks()
 		return
 	}
