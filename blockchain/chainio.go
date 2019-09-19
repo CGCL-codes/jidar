@@ -7,6 +7,7 @@ package blockchain
 import (
 	"bytes"
 	"encoding/binary"
+	"encoding/gob"
 	"fmt"
 	"math/big"
 	"sync"
@@ -66,6 +67,10 @@ var (
 	// utxoSetBucketName is the name of the db bucket used to house the
 	// unspent transaction output set.
 	utxoSetBucketName = []byte("utxosetv2")
+
+	// txoSetBucketName is the name of the db bucket used to house all the
+	// transaction output set.
+	txoSetBucketName = []byte("txoset")
 
 	// byteOrder is the preferred byte order used for serializing numeric
 	// fields for storage in the database.
@@ -251,6 +256,14 @@ type SpentTxOut struct {
 
 	// Denotes if the creating tx is a coinbase.
 	IsCoinBase bool
+}
+
+type GeneratedTxOut struct {
+	// Height is the height of the the block generating the txo.
+	Height int32
+
+	// IndexInBlock is the index of the txo in the block
+	IndexInBlock uint32
 }
 
 // FetchSpendJournal attempts to retrieve the spend journal, or the set of
@@ -655,6 +668,21 @@ func serializeUtxoEntry(entry *UtxoEntry) ([]byte, error) {
 	return serialized, nil
 }
 
+// serializeTxoEntry returns the entry serialized to a format that is suitable
+// for long-term storage.
+func serializeTxoEntry(entry *TxoEntry) ([]byte, error) {
+	var buf bytes.Buffer
+
+	enc := gob.NewEncoder(&buf)
+
+	err := enc.Encode(*entry)
+	if err!=nil {
+		return nil, err
+	}
+
+	return buf.Bytes(), nil
+}
+
 // deserializeUtxoEntry decodes a utxo entry from the passed serialized byte
 // slice into a new UtxoEntry using a format that is suitable for long-term
 // storage.  The format is described in detail above.
@@ -692,6 +720,21 @@ func deserializeUtxoEntry(serialized []byte) (*UtxoEntry, error) {
 	return entry, nil
 }
 
+// deserializeTxoEntry decodes a txo entry from the passed serialized byte
+// slice into a new TxoEntry.
+func deserializeTxoEntry(serialized []byte) (*TxoEntry, error) {
+	var entry TxoEntry
+
+	dec := gob.NewDecoder(bytes.NewReader(serialized))
+
+	err := dec.Decode(&entry)
+	if err!=nil {
+		return nil, err
+	}
+
+	return &entry, nil
+}
+
 // dbFetchUtxoEntryByHash attempts to find and fetch a utxo for the given hash.
 // It uses a cursor and seek to try and do this as efficiently as possible.
 //
@@ -722,6 +765,38 @@ func dbFetchUtxoEntryByHash(dbTx database.Tx, hash *chainhash.Hash) (*UtxoEntry,
 	}
 
 	return deserializeUtxoEntry(cursor.Value())
+}
+
+// dbFetchTxoEntryByHash attempts to find and fetch a txo for the given hash.
+// It uses a cursor and seek to try and do this as efficiently as possible.
+//
+// When there are no entries for the provided hash, nil will be returned for the
+// both the entry and the error.
+func dbFetchTxoEntryByHash(dbTx database.Tx, hash *chainhash.Hash) (*TxoEntry, error) {
+	// Attempt to find an entry by seeking for the hash along with a zero
+	// index.  Due to the fact the keys are serialized as <hash><index>,
+	// where the index uses an MSB encoding, if there are any entries for
+	// the hash at all, one will be found.
+	cursor := dbTx.Metadata().Bucket(txoSetBucketName).Cursor()
+	key := outpointKey(wire.OutPoint{Hash: *hash, Index: 0})
+	ok := cursor.Seek(*key)
+	recycleOutpointKey(key)
+	if !ok {
+		return nil, nil
+	}
+
+	// An entry was found, but it could just be an entry with the next
+	// highest hash after the requested one, so make sure the hashes
+	// actually match.
+	cursorKey := cursor.Key()
+	if len(cursorKey) < chainhash.HashSize {
+		return nil, nil
+	}
+	if !bytes.Equal(hash[:], cursorKey[:chainhash.HashSize]) {
+		return nil, nil
+	}
+
+	return deserializeTxoEntry(cursor.Value())
 }
 
 // dbFetchUtxoEntry uses an existing database transaction to fetch the specified
@@ -766,6 +841,49 @@ func dbFetchUtxoEntry(dbTx database.Tx, outpoint wire.OutPoint) (*UtxoEntry, err
 	return entry, nil
 }
 
+// dbFetchTxoEntry uses an existing database transaction to fetch the specified
+// transaction output from the utxo set.
+//
+// When there is no entry for the provided output, nil will be returned for both
+// the entry and the error.
+func dbFetchTxoEntry(dbTx database.Tx, outpoint *wire.OutPoint) (*TxoEntry, error) {
+	// Fetch the unspent transaction output information for the passed
+	// transaction output.  Return now when there is no entry.
+	key := outpointKey(*outpoint)
+	utxoBucket := dbTx.Metadata().Bucket(txoSetBucketName)
+	serializedTxo := utxoBucket.Get(*key)
+	recycleOutpointKey(key)
+	if serializedTxo == nil {
+		return nil, nil
+	}
+
+	// A non-nil zero-length entry means there is an entry in the database
+	// for a spent transaction output which should never be the case.
+	if len(serializedTxo) == 0 {
+		return nil, AssertError(fmt.Sprintf("database contains entry "+
+			"for spent tx output %v", outpoint))
+	}
+
+	// Deserialize the utxo entry and return it.
+	entry, err := deserializeTxoEntry(serializedTxo)
+	if err != nil {
+		// Ensure any deserialization errors are returned as database
+		// corruption errors.
+		if isDeserializeErr(err) {
+			return nil, database.Error{
+				ErrorCode: database.ErrCorruption,
+				Description: fmt.Sprintf("corrupt txo entry "+
+					"for %v: %v", outpoint, err),
+			}
+		}
+
+		return nil, err
+	}
+
+	return entry, nil
+}
+
+
 // dbPutUtxoView uses an existing database transaction to update the utxo set
 // in the database based on the provided utxo view contents and state.  In
 // particular, only the entries that have been marked as modified are written
@@ -806,6 +924,24 @@ func dbPutUtxoView(dbTx database.Tx, view *UtxoViewpoint) error {
 		}
 	}
 
+	return nil
+}
+
+// dbPutTxoPerBlock uses an existing database transaction to update the txo set
+// in the database based on the provided TxoPerBlock.
+func dbPutTxoPerBlock(dbTx database.Tx, tpb *TxoPerBlock) error {
+	txoBucket := dbTx.Metadata().Bucket(txoSetBucketName)
+	for outpoint, entry := range tpb.entries {
+		serialized, err := serializeTxoEntry(&entry)
+		if err != nil {
+			return err
+		}
+		key := outpointKey(outpoint)
+		err = txoBucket.Put(*key, serialized)
+		if err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
@@ -1067,6 +1203,12 @@ func (b *BlockChain) createChainState() error {
 		if err != nil {
 			return err
 		}
+
+		_, err = meta.CreateBucket(txoSetBucketName)
+		if err != nil {
+			return err
+		}
+
 		err = dbPutVersion(dbTx, spendJournalVersionKeyName,
 			latestSpendJournalBucketVersion)
 		if err != nil {

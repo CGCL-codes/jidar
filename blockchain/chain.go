@@ -559,7 +559,7 @@ func (b *BlockChain) getReorganizeNodes(node *blockNode) (*list.List, *list.List
 //
 // This function MUST be called with the chain state lock held (for writes).
 func (b *BlockChain) connectBlock(node *blockNode, block *btcutil.Block,
-	view *UtxoViewpoint, stxos []SpentTxOut) error {
+	view *UtxoViewpoint, stxos []SpentTxOut, txos *TxoPerBlock) error {
 
 	// Make sure it's extending the end of the best chain.
 	prevHash := &block.MsgBlock().Header.PrevBlock
@@ -626,6 +626,12 @@ func (b *BlockChain) connectBlock(node *blockNode, block *btcutil.Block,
 		// entails removing all of the utxos spent and adding the new
 		// ones created by the block.
 		err = dbPutUtxoView(dbTx, view)
+		if err != nil {
+			return err
+		}
+
+		// Update the txo set using txos
+		err = dbPutTxoPerBlock(dbTx, txos)
 		if err != nil {
 			return err
 		}
@@ -806,6 +812,15 @@ func countSpentOutputs(block *btcutil.Block) int {
 		numSpent += len(tx.MsgTx().TxIn)
 	}
 	return numSpent
+}
+
+// countGeneratedOutputs returns the number of newly generated txos
+func countGeneratedOutputs(block *btcutil.Block) int {
+	var numGenerated int
+	for _, tx := range block.Transactions() {
+		numGenerated += len(tx.MsgTx().TxOut)
+	}
+	return numGenerated
 }
 
 // reorganizeChain reorganizes the block chain by disconnecting the nodes in the
@@ -1047,8 +1062,9 @@ func (b *BlockChain) reorganizeChain(detachNodes, attachNodes *list.List) error 
 			return err
 		}
 
+		// TODO by seafooler ...
 		// Update the database and chain state.
-		err = b.connectBlock(n, block, view, stxos)
+		err = b.connectBlock(n, block, view, stxos, nil)
 		if err != nil {
 			return err
 		}
@@ -1110,6 +1126,10 @@ func (b *BlockChain) connectBestChain(node *blockNode, block *btcutil.Block, fla
 		view := NewUtxoViewpoint()
 		view.SetBestHash(parentHash)
 		stxos := make([]SpentTxOut, 0, countSpentOutputs(block))
+
+		txos := NewTxoPerBlock(block)
+		txos.SetBestHash(parentHash)
+
 		if !fastAdd {
 			err := b.checkConnectBlock(node, block, view, &stxos)
 			if err == nil {
@@ -1143,7 +1163,7 @@ func (b *BlockChain) connectBestChain(node *blockNode, block *btcutil.Block, fla
 		}
 
 		// Connect the block to the main chain.
-		err := b.connectBlock(node, block, view, stxos)
+		err := b.connectBlock(node, block, view, stxos, txos)
 		if err != nil {
 			// If we got hit with a rule error, then we'll mark
 			// that status of the block as invalid and flush the
@@ -1158,6 +1178,8 @@ func (b *BlockChain) connectBestChain(node *blockNode, block *btcutil.Block, fla
 
 			return false, 0, err
 		}
+
+
 
 		// If this is fast add, or this block node isn't yet marked as
 		// valid, then we'll update its status and flush the state to
