@@ -52,6 +52,11 @@ type UtxoEntry struct {
 	packedFlags txoFlags
 }
 
+type TxoEntry struct {
+	BlockHeight 	int32
+	IndexInBlock 	uint32
+}
+
 // isModified returns whether or not the output has been modified since it was
 // loaded.
 func (entry *UtxoEntry) isModified() bool {
@@ -123,16 +128,30 @@ type UtxoViewpoint struct {
 	bestHash chainhash.Hash
 }
 
+type TxoPerBlock struct {
+	entries map[wire.OutPoint]TxoEntry
+	bestHash chainhash.Hash
+}
+
 // BestHash returns the hash of the best block in the chain the view currently
 // respresents.
 func (view *UtxoViewpoint) BestHash() *chainhash.Hash {
 	return &view.bestHash
 }
 
+func (txos *TxoPerBlock) BestHash() *chainhash.Hash {
+	return &txos.bestHash
+}
+
+
 // SetBestHash sets the hash of the best block in the chain the view currently
 // respresents.
 func (view *UtxoViewpoint) SetBestHash(hash *chainhash.Hash) {
 	view.bestHash = *hash
+}
+
+func (txos *TxoPerBlock) SetBestHash(hash *chainhash.Hash) {
+	txos.bestHash = *hash
 }
 
 // LookupEntry returns information about a given transaction output according to
@@ -141,6 +160,10 @@ func (view *UtxoViewpoint) SetBestHash(hash *chainhash.Hash) {
 // disconnected during a reorg.
 func (view *UtxoViewpoint) LookupEntry(outpoint wire.OutPoint) *UtxoEntry {
 	return view.entries[outpoint]
+}
+
+func (txos *TxoPerBlock) LookupEntry(outpoint wire.OutPoint) TxoEntry {
+	return txos.entries[outpoint]
 }
 
 // addTxOut adds the specified output to the view if it is not provably
@@ -172,6 +195,13 @@ func (view *UtxoViewpoint) addTxOut(outpoint wire.OutPoint, txOut *wire.TxOut, i
 	}
 }
 
+func (txos *TxoPerBlock) addTxOut (outpoint wire.OutPoint, blockHeight int32, indexInBlock uint32) {
+	var entry TxoEntry
+	entry.BlockHeight = blockHeight
+	entry.IndexInBlock = indexInBlock
+	txos.entries[outpoint] = entry
+}
+
 // AddTxOut adds the specified output of the passed transaction to the view if
 // it exists and is not provably unspendable.  When the view already has an
 // entry for the output, it will be marked unspent.  All fields will be updated
@@ -191,6 +221,16 @@ func (view *UtxoViewpoint) AddTxOut(tx *btcutil.Tx, txOutIdx uint32, blockHeight
 	view.addTxOut(prevOut, txOut, IsCoinBase(tx), blockHeight)
 }
 
+func (txos *TxoPerBlock) AddTxOut(tx *btcutil.Tx, txOutIdx uint32, blockHeight int32, indexInBlock uint32) {
+	// Can't add an output for an out of bounds index.
+	if txOutIdx >= uint32(len(tx.MsgTx().TxOut)) {
+		return
+	}
+
+	prevOut := wire.OutPoint{Hash: *tx.Hash(), Index: txOutIdx}
+	txos.addTxOut(prevOut, blockHeight, indexInBlock)
+}
+
 // AddTxOuts adds all outputs in the passed transaction which are not provably
 // unspendable to the view.  When the view already has entries for any of the
 // outputs, they are simply marked unspent.  All fields will be updated for
@@ -208,6 +248,21 @@ func (view *UtxoViewpoint) AddTxOuts(tx *btcutil.Tx, blockHeight int32) {
 		// transaction is fully spent.
 		prevOut.Index = uint32(txOutIdx)
 		view.addTxOut(prevOut, txOut, isCoinBase, blockHeight)
+	}
+}
+
+func (txos *TxoPerBlock) AddTxOuts(tx *btcutil.Tx, blockHeight int32, startIndexInBlock uint32) {
+	// Loop all of the transaction outputs and add those which are not
+	// provably unspendable.
+	prevOut := wire.OutPoint{Hash: *tx.Hash()}
+	for txOutIdx, _ := range tx.MsgTx().TxOut {
+		// Update existing entries.  All fields are updated because it's
+		// possible (although extremely unlikely) that the existing
+		// entry is being replaced by a different transaction with the
+		// same hash.  This is allowed so long as the previous
+		// transaction is fully spent.
+		prevOut.Index = uint32(txOutIdx)
+		txos.addTxOut(prevOut, blockHeight, startIndexInBlock+uint32(txOutIdx))
 	}
 }
 
@@ -299,6 +354,18 @@ func (view *UtxoViewpoint) fetchEntryByHash(db database.DB, hash *chainhash.Hash
 	err := db.View(func(dbTx database.Tx) error {
 		var err error
 		entry, err = dbFetchUtxoEntryByHash(dbTx, hash)
+		return err
+	})
+	return entry, err
+}
+
+// fetchEntryByHash attempts to find any available txo for the given hash by
+// searching the entire set of possible outputs for the given hash.  It falls back to the database.
+func fetchTxoByHash(db database.DB, hash *chainhash.Hash) (*TxoEntry, error) {
+	var entry *TxoEntry
+	err := db.View(func(dbTx database.Tx) error {
+		var err error
+		entry, err = dbFetchTxoEntryByHash(dbTx, hash)
 		return err
 	})
 	return entry, err
@@ -583,6 +650,25 @@ func NewUtxoViewpoint() *UtxoViewpoint {
 	}
 }
 
+// NewTxoViewpoint creates the TxoPerBlock according to the passed argument: block.
+func NewTxoPerBlock(block *btcutil.Block) *TxoPerBlock {
+	entries := make(map[wire.OutPoint]TxoEntry)
+	var index uint32 = 0
+	te := TxoEntry{BlockHeight:block.Height()}
+	for _, tx := range block.Transactions() {
+		out := wire.OutPoint{Hash: *tx.Hash()}
+		for txOutIdx, _ := range tx.MsgTx().TxOut {
+			out.Index = uint32(txOutIdx)
+			te.IndexInBlock = index
+			entries[out] = te
+			index++
+		}
+	}
+	return &TxoPerBlock{
+		entries: entries,
+	}
+}
+
 // FetchUtxoView loads unspent transaction outputs for the inputs referenced by
 // the passed transaction from the point of view of the end of the main chain.
 // It also attempts to fetch the utxos for the outputs of the transaction itself
@@ -632,6 +718,31 @@ func (b *BlockChain) FetchUtxoEntry(outpoint wire.OutPoint) (*UtxoEntry, error) 
 	err := b.db.View(func(dbTx database.Tx) error {
 		var err error
 		entry, err = dbFetchUtxoEntry(dbTx, outpoint)
+		return err
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return entry, nil
+}
+
+// FetchTxoEntry loads and returns the requested transaction output
+// from the point of view of the end of the main chain.
+//
+// NOTE: Requesting an output for which there is no data will NOT return an
+// error.  Instead both the entry and the error will be nil.
+//
+// This function is safe for concurrent access however the returned entry (if
+// any) is NOT.
+func (b *BlockChain) FetchTxoEntry(outpoint *wire.OutPoint) (*TxoEntry, error) {
+	b.chainLock.RLock()
+	defer b.chainLock.RUnlock()
+
+	var entry *TxoEntry
+	err := b.db.View(func(dbTx database.Tx) error {
+		var err error
+		entry, err = dbFetchTxoEntry(dbTx, outpoint)
 		return err
 	})
 	if err != nil {
