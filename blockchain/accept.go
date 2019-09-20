@@ -45,7 +45,7 @@ func (b *BlockChain) CreateMsgBlockNew(msgBlock *wire.MsgBlock, blockHeight uint
 				for ; pi<i; pi++ {
 					if msgBlock.Transactions[pi].TxHash() == in.PreviousOutPoint.Hash {
 						valid = true
-						log.Info(fmt.Sprintf("--------------- find it , fuck it, blockNum: %d, txpos: %d, " +
+						log.Trace(fmt.Sprintf("--------------- find it , fuck it, blockNum: %d, txpos: %d, " +
 							"inpos: %d, reference txpos: %d", blockHeight, i, j, pi))
 						break
 					}
@@ -96,6 +96,10 @@ func (b *BlockChain) maybeAcceptBlock(block *btcutil.Block, flags BehaviorFlags)
 
 	blockHeight := prevNode.height + 1
 	block.SetHeight(blockHeight)
+
+	if blockHeight % 100 == 0 {
+		log.Info("++++++++++++++++++++++ Block number in process: ", blockHeight)
+	}
 
 	// fill the msgBlockNew in block
 	msgBlock := block.MsgBlock()
