@@ -53,7 +53,7 @@ type UtxoEntry struct {
 }
 
 type TxoEntry struct {
-	BlockHeight 	int32
+	BlockHeight 	uint32
 	IndexInBlock 	uint32
 }
 
@@ -195,7 +195,7 @@ func (view *UtxoViewpoint) addTxOut(outpoint wire.OutPoint, txOut *wire.TxOut, i
 	}
 }
 
-func (txos *TxoPerBlock) addTxOut (outpoint wire.OutPoint, blockHeight int32, indexInBlock uint32) {
+func (txos *TxoPerBlock) addTxOut (outpoint wire.OutPoint, blockHeight uint32, indexInBlock uint32) {
 	var entry TxoEntry
 	entry.BlockHeight = blockHeight
 	entry.IndexInBlock = indexInBlock
@@ -221,7 +221,7 @@ func (view *UtxoViewpoint) AddTxOut(tx *btcutil.Tx, txOutIdx uint32, blockHeight
 	view.addTxOut(prevOut, txOut, IsCoinBase(tx), blockHeight)
 }
 
-func (txos *TxoPerBlock) AddTxOut(tx *btcutil.Tx, txOutIdx uint32, blockHeight int32, indexInBlock uint32) {
+func (txos *TxoPerBlock) AddTxOut(tx *btcutil.Tx, txOutIdx uint32, blockHeight uint32, indexInBlock uint32) {
 	// Can't add an output for an out of bounds index.
 	if txOutIdx >= uint32(len(tx.MsgTx().TxOut)) {
 		return
@@ -251,7 +251,7 @@ func (view *UtxoViewpoint) AddTxOuts(tx *btcutil.Tx, blockHeight int32) {
 	}
 }
 
-func (txos *TxoPerBlock) AddTxOuts(tx *btcutil.Tx, blockHeight int32, startIndexInBlock uint32) {
+func (txos *TxoPerBlock) AddTxOuts(tx *btcutil.Tx, blockHeight uint32, startIndexInBlock uint32) {
 	// Loop all of the transaction outputs and add those which are not
 	// provably unspendable.
 	prevOut := wire.OutPoint{Hash: *tx.Hash()}
@@ -654,7 +654,7 @@ func NewUtxoViewpoint() *UtxoViewpoint {
 func NewTxoPerBlock(block *btcutil.Block) *TxoPerBlock {
 	entries := make(map[wire.OutPoint]TxoEntry)
 	var index uint32 = 0
-	te := TxoEntry{BlockHeight:block.Height()}
+	te := TxoEntry{BlockHeight:uint32(block.Height())}
 	for _, tx := range block.Transactions() {
 		out := wire.OutPoint{Hash: *tx.Hash()}
 		for txOutIdx, _ := range tx.MsgTx().TxOut {
@@ -736,8 +736,11 @@ func (b *BlockChain) FetchUtxoEntry(outpoint wire.OutPoint) (*UtxoEntry, error) 
 // This function is safe for concurrent access however the returned entry (if
 // any) is NOT.
 func (b *BlockChain) FetchTxoEntry(outpoint *wire.OutPoint) (*TxoEntry, error) {
-	b.chainLock.RLock()
-	defer b.chainLock.RUnlock()
+	// if outpoint == nil {
+	//	log.Info("----------- in FetchTxoEntry, outpoint is nil")
+	// } else {
+	//	log.Info("----------- in FetchTxoEntry, outpoint: ", *outpoint)
+	// }
 
 	var entry *TxoEntry
 	err := b.db.View(func(dbTx database.Tx) error {

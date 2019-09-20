@@ -360,6 +360,9 @@ type dbCache struct {
 	// store is used to sync blocks to flat files.
 	store *blockStore
 
+	// storeNew ----
+	storeNew *blockStore
+
 	// The following fields are related to flushing the cache to persistent
 	// storage.  Note that all flushing is performed in an opportunistic
 	// fashion.  This means that it is only flushed during a transaction or
@@ -647,10 +650,11 @@ func (c *dbCache) Close() error {
 // leveldb instance.  The cache will be flushed to leveldb when the max size
 // exceeds the provided value or it has been longer than the provided interval
 // since the last flush.
-func newDbCache(ldb *leveldb.DB, store *blockStore, maxSize uint64, flushIntervalSecs uint32) *dbCache {
+func newDbCache(ldb *leveldb.DB, store *blockStore, storeNew *blockStore, maxSize uint64, flushIntervalSecs uint32) *dbCache {
 	return &dbCache{
 		ldb:           ldb,
 		store:         store,
+		storeNew: 		storeNew,
 		maxSize:       maxSize,
 		flushInterval: time.Second * time.Duration(flushIntervalSecs),
 		lastFlush:     time.Now(),

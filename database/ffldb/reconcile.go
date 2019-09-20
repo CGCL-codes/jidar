@@ -94,6 +94,17 @@ func reconcileDB(pdb *db, create bool) (database.DB, error) {
 		log.Infof("Database sync complete")
 	}
 
+	wcNew := pdb.storeNew.writeCursor
+	if wcNew.curFileNum > curFileNum || (wcNew.curFileNum == curFileNum &&
+		wcNew.curOffset > curOffset) {
+		log.Info("StoreNew: Detected unclean shutdown - Repairing...")
+		log.Debugf("StoreNew: Metadata claims file %d, offset %d. Block data is "+
+			"at file %d, offset %d", curFileNum, curOffset,
+			wcNew.curFileNum, wcNew.curOffset)
+		pdb.storeNew.handleRollback(curFileNum, curOffset)
+		log.Infof("StoreNew: Database sync complete")
+	}
+
 	// When the write cursor position found by scanning the block files on
 	// disk is BEFORE the position the metadata believes to be true, return
 	// a corruption error.  Since sync is called after each block is written

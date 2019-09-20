@@ -146,6 +146,10 @@ func (b *BlockChain) ProcessBlock(block *btcutil.Block, flags BehaviorFlags) (bo
 	b.chainLock.Lock()
 	defer b.chainLock.Unlock()
 
+	if block.Height() % 100 == 0 {
+		log.Info("++++++++++++++++++++++ Block number in process: ", block.Height())
+	}
+	
 	fastAdd := flags&BFFastAdd == BFFastAdd
 
 	blockHash := block.Hash()

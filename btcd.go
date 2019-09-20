@@ -210,6 +210,17 @@ func blockDbPath(dbType string) string {
 	return dbPath
 }
 
+// dbPath returns the path to the block database given a database type.
+func blockNewDbPath(dbType string) string {
+	// The database name is based on the database type.
+	dbName := blockDbNamePrefix + "_" + dbType + "new"
+	if dbType == "sqlite" {
+		dbName = dbName + ".db"
+	}
+	dbPath := filepath.Join(cfg.DataDir, dbName)
+	return dbPath
+}
+
 // warnMultipleDBs shows a warning if multiple block database types are detected.
 // This is not a situation most users want.  It is handy for development however
 // to support multiple side-by-side databases.
@@ -265,13 +276,15 @@ func loadBlockDB() (database.DB, error) {
 
 	// The database name is based on the database type.
 	dbPath := blockDbPath(cfg.DbType)
+	dbPathNew := blockNewDbPath(cfg.DbType)
+
 
 	// The regression test is special in that it needs a clean database for
 	// each run, so remove it now if it already exists.
 	removeRegressionDB(dbPath)
 
 	btcdLog.Infof("Loading block database from '%s'", dbPath)
-	db, err := database.Open(cfg.DbType, dbPath, activeNetParams.Net)
+	db, err := database.Open(cfg.DbType, dbPath, dbPathNew, activeNetParams.Net)
 	if err != nil {
 		// Return the error if it's not because the database doesn't
 		// exist.
@@ -286,7 +299,7 @@ func loadBlockDB() (database.DB, error) {
 		if err != nil {
 			return nil, err
 		}
-		db, err = database.Create(cfg.DbType, dbPath, activeNetParams.Net)
+		db, err = database.Create(cfg.DbType, dbPath, dbPathNew, activeNetParams.Net)
 		if err != nil {
 			return nil, err
 		}

@@ -850,8 +850,8 @@ func dbFetchTxoEntry(dbTx database.Tx, outpoint *wire.OutPoint) (*TxoEntry, erro
 	// Fetch the unspent transaction output information for the passed
 	// transaction output.  Return now when there is no entry.
 	key := outpointKey(*outpoint)
-	utxoBucket := dbTx.Metadata().Bucket(txoSetBucketName)
-	serializedTxo := utxoBucket.Get(*key)
+	txoBucket := dbTx.Metadata().Bucket(txoSetBucketName)
+	serializedTxo := txoBucket.Get(*key)
 	recycleOutpointKey(key)
 	if serializedTxo == nil {
 		return nil, nil
@@ -1147,6 +1147,14 @@ func (b *BlockChain) createChainState() error {
 	node.status = statusDataStored | statusValid
 	b.bestChain.SetTip(node)
 
+	// fill the msgBlockNew in genesisBlock
+	msgBlock := genesisBlock.MsgBlock()
+	msgBlockNew, err := b.CreateMsgBlockNew(msgBlock, 0)
+	if err!=nil {
+		return err
+	}
+	genesisBlock.SetMsgBlockNew(msgBlockNew)
+
 	// Add the new node to the index which is used for faster lookups.
 	b.index.addNode(node)
 
@@ -1160,7 +1168,7 @@ func (b *BlockChain) createChainState() error {
 
 	// Create the initial the database chain state including creating the
 	// necessary index buckets and inserting the genesis block.
-	err := b.db.Update(func(dbTx database.Tx) error {
+	err = b.db.Update(func(dbTx database.Tx) error {
 		meta := dbTx.Metadata()
 
 		// Create the bucket that houses the block index data.

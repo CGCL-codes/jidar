@@ -5,12 +5,71 @@
 package blockchain
 
 import (
+	"errors"
 	"fmt"
+	"github.com/btcsuite/btcd/wire"
 	"time"
 
 	"github.com/btcsuite/btcd/database"
 	"github.com/btcsuite/btcutil"
 )
+
+func (b *BlockChain) CreateMsgBlockNew(msgBlock *wire.MsgBlock, blockHeight uint32) (*wire.MsgBlockNew, error) {
+	msgBlockNew := new(wire.MsgBlockNew)
+	msgBlockNew.Header = msgBlock.Header
+	var entry *TxoEntry
+	var err error
+	for i, tx := range msgBlock.Transactions {
+		if i == 0 {
+			continue
+		}
+		txNew := new(wire.MsgTxNew)
+		txNew.Version = tx.Version
+		txNew.LockTime = tx.LockTime
+		txNew.TxOut = tx.TxOut
+		txNew.TxInNew = make([]*wire.TxInNew, len(tx.TxIn))
+		for j, in := range tx.TxIn {
+			inNew := new(wire.TxInNew)
+			inNew.PreviousOutPoint = in.PreviousOutPoint
+			inNew.SignatureScript = in.SignatureScript
+			inNew.Witness = in.Witness
+			inNew.Sequence = in.Sequence
+			entry, err = b.FetchTxoEntry(&in.PreviousOutPoint)
+			if err != nil {
+				return nil, err
+			}
+			// if entry == nil, check if the previousOutput spends an output in this block
+			if entry == nil {
+				valid := false
+				pi:=0
+				for ; pi<i; pi++ {
+					if msgBlock.Transactions[pi].TxHash() == in.PreviousOutPoint.Hash {
+						valid = true
+						log.Info(fmt.Sprintf("--------------- find it , fuck it, blockNum: %d, txpos: %d, " +
+							"inpos: %d, reference txpos: %d", blockHeight, i, j, pi))
+						break
+					}
+				}
+				if valid  {
+					entry = new(TxoEntry)
+					entry.BlockHeight = blockHeight
+					txoCount := 0
+					for k:=0; k<pi; k++ {
+						txoCount += len(msgBlock.Transactions[k].TxOut)
+					}
+					entry.IndexInBlock = uint32(txoCount) + in.PreviousOutPoint.Index
+				} else {
+					return nil, errors.New(fmt.Sprintf("Cannot find the PreviousOutPoint: ",
+						in.PreviousOutPoint.String()))
+				}
+			}
+			inNew.BlockHeight = entry.BlockHeight
+			inNew.IndexInBlock = entry.IndexInBlock
+			txNew.TxInNew[j] = inNew
+		}
+	}
+	return msgBlockNew, nil
+}
 
 // maybeAcceptBlock potentially accepts a block into the block chain and, if
 // accepted, returns whether or not it is on the main chain.  It performs
@@ -38,9 +97,17 @@ func (b *BlockChain) maybeAcceptBlock(block *btcutil.Block, flags BehaviorFlags)
 	blockHeight := prevNode.height + 1
 	block.SetHeight(blockHeight)
 
+	// fill the msgBlockNew in block
+	msgBlock := block.MsgBlock()
+	msgBlockNew, err := b.CreateMsgBlockNew(msgBlock, uint32(blockHeight))
+	if err!=nil {
+		return false, 0, err
+	}
+	block.SetMsgBlockNew(msgBlockNew)
+
 	// The block must pass all of the validation rules which depend on the
 	// position of the block within the block chain.
-	err := b.checkBlockContext(block, prevNode, flags)
+	err = b.checkBlockContext(block, prevNode, flags)
 	if err != nil {
 		return false, 0, err
 	}

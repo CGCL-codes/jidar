@@ -59,6 +59,8 @@ var (
 	// current bucket ID counter.
 	curBucketIDKeyName = []byte("bidx-cbid")
 
+	curNewBucketIDKeyName = []byte("bidx-new-cbid")
+
 	// metadataBucketID is the ID of the top-level metadata bucket.
 	// It is the value 0 encoded as an unsigned big-endian uint32.
 	metadataBucketID = [4]byte{}
@@ -67,13 +69,21 @@ var (
 	// It is the value 1 encoded as an unsigned big-endian uint32.
 	blockIdxBucketID = [4]byte{0x00, 0x00, 0x00, 0x01}
 
+	// blockNewIdxBucketID is the ID of the internal block metadata bucket.
+	// It is the value 2 encoded as an unsigned big-endian uint32.
+	blockNewIdxBucketID = [4]byte{0x00, 0x00, 0x00, 0x02}
+
 	// blockIdxBucketName is the bucket used internally to track block
 	// metadata.
 	blockIdxBucketName = []byte("ffldb-blockidx")
 
+	blockNewIdxBucketName = []byte("ffldb-blockidx")
+
 	// writeLocKeyName is the key used to store the current write file
 	// location.
 	writeLocKeyName = []byte("ffldb-writeloc")
+
+	writeNewLocKeyName = []byte("ffldb-writenewloc")
 )
 
 // Common error strings.
@@ -949,6 +959,11 @@ type pendingBlock struct {
 	bytes []byte
 }
 
+type pendingBlockNew struct {
+	hash  *chainhash.Hash
+	bytes []byte
+}
+
 // transaction represents a database transaction.  It can either be read-only or
 // read-write and implements the database.Bucket interface.  The transaction
 // provides a root bucket against which all read and writes occur.
@@ -960,11 +975,15 @@ type transaction struct {
 	snapshot       *dbCacheSnapshot // Underlying snapshot for txns.
 	metaBucket     *bucket          // The root metadata bucket.
 	blockIdxBucket *bucket          // The block index bucket.
+	blockNewIdxBucket *bucket
 
 	// Blocks that need to be stored on commit.  The pendingBlocks map is
 	// kept to allow quick lookups of pending data by block hash.
 	pendingBlocks    map[chainhash.Hash]int
 	pendingBlockData []pendingBlock
+
+	pendingBlocksNew map[chainhash.Hash]int
+	pendingBlockNewData	[]pendingBlockNew
 
 	// Keys that need to be stored or deleted on commit.
 	pendingKeys   *treap.Mutable
@@ -1172,6 +1191,17 @@ func (tx *transaction) StoreBlock(block *btcutil.Block) error {
 		return makeDbErr(database.ErrDriverSpecific, str, err)
 	}
 
+
+	// decode the blockNew
+	msgBlockNew := block.MsgBlockNew()
+
+	w := bytes.NewBuffer(make([]byte, 0, msgBlockNew.SerializeSize()))
+	err = msgBlockNew.Serialize(w)
+	if err != nil {
+		return err
+	}
+	serializedBlockNew := w.Bytes()
+
 	// Add the block to be stored to the list of pending blocks to store
 	// when the transaction is committed.  Also, add it to pending blocks
 	// map so it is easy to determine the block is pending based on the
@@ -1184,7 +1214,15 @@ func (tx *transaction) StoreBlock(block *btcutil.Block) error {
 		hash:  blockHash,
 		bytes: blockBytes,
 	})
-	log.Tracef("Added block %s to pending blocks", blockHash)
+
+	if tx.pendingBlocksNew == nil {
+		tx.pendingBlocksNew = make(map[chainhash.Hash]int)
+	}
+	tx.pendingBlockNewData = append(tx.pendingBlockNewData, pendingBlockNew{
+		hash:  blockHash,
+		bytes: serializedBlockNew,
+	})
+	log.Tracef("Added block & blocknew %s to pending blocks", blockHash)
 
 	return nil
 }
@@ -1236,6 +1274,11 @@ func (tx *transaction) fetchBlockRow(hash *chainhash.Hash) ([]byte, error) {
 	}
 
 	return blockRow, nil
+}
+
+func (tx *transaction) fetchBlockNewRow(hash *chainhash.Hash) ([]byte, error) {
+	// Todo ...
+	return nil, nil
 }
 
 // FetchBlockHeader returns the raw serialized bytes for the block header
@@ -1332,6 +1375,11 @@ func (tx *transaction) FetchBlock(hash *chainhash.Hash) ([]byte, error) {
 	}
 
 	return blockBytes, nil
+}
+
+func (tx *transaction) FetchBlockNew(hash *chainhash.Hash) ([]byte, error) {
+	// Todo ...
+	return nil, nil
 }
 
 // FetchBlocks returns the raw serialized bytes for the blocks identified by the
@@ -1629,11 +1677,19 @@ func (tx *transaction) writePendingAndCommit() error {
 	oldBlkOffset := wc.curOffset
 	wc.RUnlock()
 
+	wcNew := tx.db.storeNew.writeCursor
+	wcNew.RLock()
+	oldBlkFileNumNew := wc.curFileNum
+	oldBlkOffsetNew:= wc.curOffset
+	wcNew.RUnlock()
+
 	// rollback is a closure that is used to rollback all writes to the
 	// block files.
 	rollback := func() {
 		// Rollback any modifications made to the block files if needed.
 		tx.db.store.handleRollback(oldBlkFileNum, oldBlkOffset)
+
+		tx.db.storeNew.handleRollback(oldBlkFileNumNew, oldBlkOffsetNew)
 	}
 
 	// Loop through all of the pending blocks to store and write them.
@@ -1657,11 +1713,38 @@ func (tx *transaction) writePendingAndCommit() error {
 		}
 	}
 
+	// Loop through all of the pending blocks to store and write them.
+	for _, blockNewData := range tx.pendingBlockNewData {
+		log.Tracef("Storing blocknew %s", blockNewData.hash)
+		location, err := tx.db.storeNew.writeBlock(blockNewData.bytes)
+		if err != nil {
+			rollback()
+			return err
+		}
+
+		// Add a record in the block index for the block.  The record
+		// includes the location information needed to locate the block
+		// on the filesystem as well as the block header since they are
+		// so commonly needed.
+		blockRow := serializeBlockLoc(location)
+		err = tx.blockNewIdxBucket.Put(blockNewData.hash[:], blockRow)
+		if err != nil {
+			rollback()
+			return err
+		}
+	}
+
 	// Update the metadata for the current write file and offset.
 	writeRow := serializeWriteRow(wc.curFileNum, wc.curOffset)
 	if err := tx.metaBucket.Put(writeLocKeyName, writeRow); err != nil {
 		rollback()
 		return convertErr("failed to store write cursor", err)
+	}
+
+	writeRowNew := serializeWriteRow(wcNew.curFileNum, wcNew.curOffset)
+	if err := tx.metaBucket.Put(writeNewLocKeyName, writeRowNew); err != nil {
+		rollback()
+		return convertErr("failed to store new write cursor", err)
 	}
 
 	// Atomically update the database cache.  The cache automatically
@@ -1731,6 +1814,7 @@ type db struct {
 	closeLock sync.RWMutex // Make database close block while txns active.
 	closed    bool         // Is the database closed?
 	store     *blockStore  // Handles read/writing blocks to flat files.
+	storeNew	*blockStore
 	cache     *dbCache     // Cache layer which wraps underlying leveldb DB.
 }
 
@@ -1797,6 +1881,7 @@ func (db *db) begin(writable bool) (*transaction, error) {
 	}
 	tx.metaBucket = &bucket{tx: tx, id: metadataBucketID}
 	tx.blockIdxBucket = &bucket{tx: tx, id: blockIdxBucketID}
+	tx.blockNewIdxBucket = &bucket{tx: tx, id: blockNewIdxBucketID}
 	return tx, nil
 }
 
@@ -1960,6 +2045,9 @@ func initDB(ldb *leveldb.DB) error {
 	batch.Put(bucketizedKey(metadataBucketID, writeLocKeyName),
 		serializeWriteRow(0, 0))
 
+	batch.Put(bucketizedKey(metadataBucketID, writeNewLocKeyName),
+		serializeWriteRow(0, 0))
+
 	// Create block index bucket and set the current bucket id.
 	//
 	// NOTE: Since buckets are virtualized through the use of prefixes,
@@ -1968,7 +2056,13 @@ func initDB(ldb *leveldb.DB) error {
 	// need to account for it to ensure there are no key collisions.
 	batch.Put(bucketIndexKey(metadataBucketID, blockIdxBucketName),
 		blockIdxBucketID[:])
+
+	batch.Put(bucketIndexKey(metadataBucketID, blockNewIdxBucketName),
+		blockNewIdxBucketID[:])
+
 	batch.Put(curBucketIDKeyName, blockIdxBucketID[:])
+
+	batch.Put(curNewBucketIDKeyName, blockNewIdxBucketID[:])
 
 	// Write everything as a single batch.
 	if err := ldb.Write(batch, nil); err != nil {
@@ -1982,7 +2076,7 @@ func initDB(ldb *leveldb.DB) error {
 
 // openDB opens the database at the provided path.  database.ErrDbDoesNotExist
 // is returned if the database doesn't exist and the create flag is not set.
-func openDB(dbPath string, network wire.BitcoinNet, create bool) (database.DB, error) {
+func openDB(dbPath,  dbPathNew string, network wire.BitcoinNet, create bool) (database.DB, error) {
 	// Error if the database doesn't exist and the create flag is not set.
 	metadataDbPath := filepath.Join(dbPath, metadataDbName)
 	dbExists := fileExists(metadataDbPath)
@@ -1999,6 +2093,22 @@ func openDB(dbPath string, network wire.BitcoinNet, create bool) (database.DB, e
 		_ = os.MkdirAll(dbPath, 0700)
 	}
 
+	metadataDbPathNew := filepath.Join(dbPathNew, metadataDbName)
+	dbExistsNew := fileExists(metadataDbPathNew)
+	if !create && !dbExistsNew {
+		str := fmt.Sprintf("database new %q does not exist", metadataDbPathNew)
+		return nil, makeDbErr(database.ErrDbDoesNotExist, str, nil)
+	}
+
+	// Ensure the full path to the database exists.
+	if !dbExistsNew {
+		// The error can be ignored here since the call to
+		// leveldb.OpenFile will fail if the directory couldn't be
+		// created.
+		_ = os.MkdirAll(dbPathNew, 0700)
+	}
+
+
 	// Open the metadata database (will create it if needed).
 	opts := opt.Options{
 		ErrorIfExist: create,
@@ -2010,6 +2120,10 @@ func openDB(dbPath string, network wire.BitcoinNet, create bool) (database.DB, e
 	if err != nil {
 		return nil, convertErr(err.Error(), err)
 	}
+	_, err = leveldb.OpenFile(metadataDbPathNew, &opts)
+	if err != nil {
+		return nil, convertErr(err.Error(), err)
+	}
 
 	// Create the block store which includes scanning the existing flat
 	// block files to find what the current write cursor position is
@@ -2017,8 +2131,9 @@ func openDB(dbPath string, network wire.BitcoinNet, create bool) (database.DB, e
 	// database cache which wraps the underlying leveldb database to provide
 	// write caching.
 	store := newBlockStore(dbPath, network)
-	cache := newDbCache(ldb, store, defaultCacheSize, defaultFlushSecs)
-	pdb := &db{store: store, cache: cache}
+	storeNew := newBlockStore(dbPathNew, network)
+	cache := newDbCache(ldb, store, storeNew, defaultCacheSize, defaultFlushSecs)
+	pdb := &db{store: store, storeNew: storeNew, cache: cache}
 
 	// Perform any reconciliation needed between the block and metadata as
 	// well as database initialization, if needed.
