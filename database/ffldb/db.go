@@ -59,8 +59,6 @@ var (
 	// current bucket ID counter.
 	curBucketIDKeyName = []byte("bidx-cbid")
 
-	curNewBucketIDKeyName = []byte("bidx-new-cbid")
-
 	// metadataBucketID is the ID of the top-level metadata bucket.
 	// It is the value 0 encoded as an unsigned big-endian uint32.
 	metadataBucketID = [4]byte{}
@@ -70,7 +68,7 @@ var (
 	blockIdxBucketID = [4]byte{0x00, 0x00, 0x00, 0x01}
 
 	// blockNewIdxBucketID is the ID of the internal block metadata bucket.
-	// It is the value 2 encoded as an unsigned big-endian uint32.
+	// It is the value 2 encoded as an unsigned big-endian uint32
 	blockNewIdxBucketID = [4]byte{0x00, 0x00, 0x00, 0x02}
 
 	// blockIdxBucketName is the bucket used internally to track block
@@ -657,6 +655,8 @@ func (b *bucket) CreateBucket(key []byte) (database.Bucket, error) {
 	var childID [4]byte
 	if b.id == metadataBucketID && bytes.Equal(key, blockIdxBucketName) {
 		childID = blockIdxBucketID
+	} else if b.id == metadataBucketID && bytes.Equal(key, blockNewIdxBucketName){
+		childID = blockNewIdxBucketID
 	} else {
 		var err error
 		childID, err = b.tx.nextBucketID()
@@ -2060,9 +2060,8 @@ func initDB(ldb *leveldb.DB) error {
 	batch.Put(bucketIndexKey(metadataBucketID, blockNewIdxBucketName),
 		blockNewIdxBucketID[:])
 
-	batch.Put(curBucketIDKeyName, blockIdxBucketID[:])
-
-	batch.Put(curNewBucketIDKeyName, blockNewIdxBucketID[:])
+	// set current bucket ID index as blockNewIdxBucketID: [0x00, 0x00, 0x00, 0x02]
+	batch.Put(curBucketIDKeyName, blockNewIdxBucketID[:])
 
 	// Write everything as a single batch.
 	if err := ldb.Write(batch, nil); err != nil {

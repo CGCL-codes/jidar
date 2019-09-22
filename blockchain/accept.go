@@ -17,12 +17,10 @@ import (
 func (b *BlockChain) CreateMsgBlockNew(msgBlock *wire.MsgBlock, blockHeight uint32) (*wire.MsgBlockNew, error) {
 	msgBlockNew := new(wire.MsgBlockNew)
 	msgBlockNew.Header = msgBlock.Header
+	msgBlockNew.Transactions = make([]*wire.MsgTxNew, len(msgBlock.Transactions))
 	var entry *TxoEntry
 	var err error
 	for i, tx := range msgBlock.Transactions {
-		if i == 0 {
-			continue
-		}
 		txNew := new(wire.MsgTxNew)
 		txNew.Version = tx.Version
 		txNew.LockTime = tx.LockTime
@@ -34,39 +32,50 @@ func (b *BlockChain) CreateMsgBlockNew(msgBlock *wire.MsgBlock, blockHeight uint
 			inNew.SignatureScript = in.SignatureScript
 			inNew.Witness = in.Witness
 			inNew.Sequence = in.Sequence
-			entry, err = b.FetchTxoEntry(&in.PreviousOutPoint)
-			if err != nil {
-				return nil, err
-			}
-			// if entry == nil, check if the previousOutput spends an output in this block
-			if entry == nil {
-				valid := false
-				pi:=0
-				for ; pi<i; pi++ {
-					if msgBlock.Transactions[pi].TxHash() == in.PreviousOutPoint.Hash {
-						valid = true
-						log.Trace(fmt.Sprintf("--------------- find it , fuck it, blockNum: %d, txpos: %d, " +
-							"inpos: %d, reference txpos: %d", blockHeight, i, j, pi))
-						break
-					}
+			if blockHeight != 0 {
+				// Continue for the genesis block, since leveldb is not created
+				entry, err = b.FetchTxoEntry(&in.PreviousOutPoint)
+				if err != nil {
+					return nil, err
 				}
-				if valid  {
-					entry = new(TxoEntry)
-					entry.BlockHeight = blockHeight
-					txoCount := 0
-					for k:=0; k<pi; k++ {
-						txoCount += len(msgBlock.Transactions[k].TxOut)
+			}
+
+			if entry == nil {
+				entry = new(TxoEntry)
+				if i != 0 {
+					// if entry == nil && not the coinbase, check if the previousOutput spends an output in this block
+					valid := false
+					pi := 0
+					for ; pi < i; pi++ {
+						if msgBlock.Transactions[pi].TxHash() == in.PreviousOutPoint.Hash {
+							valid = true
+							log.Trace(fmt.Sprintf("--------------- find it , fuck it, blockNum: %d, txpos: %d, "+
+								"inpos: %d, reference txpos: %d", blockHeight, i, j, pi))
+							break
+						}
 					}
-					entry.IndexInBlock = uint32(txoCount) + in.PreviousOutPoint.Index
+					if valid {
+						entry.BlockHeight = blockHeight
+						txoCount := 0
+						for k := 0; k < pi; k++ {
+							txoCount += len(msgBlock.Transactions[k].TxOut)
+						}
+						entry.IndexInBlock = uint32(txoCount) + in.PreviousOutPoint.Index
+					} else {
+						return nil, errors.New(fmt.Sprintf("Cannot find the PreviousOutPoint: ",
+							in.PreviousOutPoint.String()))
+					}
 				} else {
-					return nil, errors.New(fmt.Sprintf("Cannot find the PreviousOutPoint: ",
-						in.PreviousOutPoint.String()))
+					// if it is a coinbase, set BlockHeight and IndexInBlock as -1
+					entry.IndexInBlock = 0
+					entry.BlockHeight = 0
 				}
 			}
 			inNew.BlockHeight = entry.BlockHeight
 			inNew.IndexInBlock = entry.IndexInBlock
 			txNew.TxInNew[j] = inNew
 		}
+		msgBlockNew.Transactions[i] = txNew
 	}
 	return msgBlockNew, nil
 }
@@ -96,10 +105,6 @@ func (b *BlockChain) maybeAcceptBlock(block *btcutil.Block, flags BehaviorFlags)
 
 	blockHeight := prevNode.height + 1
 	block.SetHeight(blockHeight)
-
-	if blockHeight % 100 == 0 {
-		log.Info("++++++++++++++++++++++ Block number in process: ", blockHeight)
-	}
 
 	// fill the msgBlockNew in block
 	msgBlock := block.MsgBlock()

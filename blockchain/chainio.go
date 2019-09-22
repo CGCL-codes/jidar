@@ -1295,7 +1295,6 @@ func (b *BlockChain) initChainState() error {
 		// number of nodes are already known, perform a single alloc
 		// for them versus a whole bunch of little ones to reduce
 		// pressure on the GC.
-		log.Infof("Loading block index...")
 
 		blockIndexBucket := dbTx.Metadata().Bucket(blockIndexBucketName)
 
@@ -1316,7 +1315,6 @@ func (b *BlockChain) initChainState() error {
 			if err != nil {
 				return err
 			}
-
 			// Determine the parent block node. Since we iterate block headers
 			// in order of height, if the blocks are mostly linear there is a
 			// very good chance the previous header processed is the parent.
