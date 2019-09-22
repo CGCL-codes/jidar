@@ -17,8 +17,8 @@ import (
 	"github.com/btcsuite/btcd/rpcclient"
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
-	"github.com/btcsuite/btcutil"
-	"github.com/btcsuite/btcutil/hdkeychain"
+	btcutil "github.com/seafooler/btcutils-utxo-exp"
+	"github.com/seafooler/btcutil/hdkeychain"
 )
 
 var (

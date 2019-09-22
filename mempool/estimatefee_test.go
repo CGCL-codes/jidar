@@ -12,7 +12,7 @@ import (
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/mining"
 	"github.com/btcsuite/btcd/wire"
-	"github.com/btcsuite/btcutil"
+	btcutil "github.com/seafooler/btcutils-utxo-exp"
 )
 
 // newTestFeeEstimator creates a feeEstimator with some different parameters

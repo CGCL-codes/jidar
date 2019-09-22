@@ -12,7 +12,7 @@ import (
 
 	"github.com/btcsuite/btcd/txscript"
 	"github.com/btcsuite/btcd/wire"
-	"github.com/btcsuite/btcutil"
+	btcutil "github.com/seafooler/btcutils-utxo-exp"
 )
 
 // txValidateItem holds a transaction along with which input to validate.

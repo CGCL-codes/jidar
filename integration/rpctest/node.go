@@ -15,7 +15,7 @@ import (
 	"time"
 
 	rpc "github.com/btcsuite/btcd/rpcclient"
-	"github.com/btcsuite/btcutil"
+	btcutil "github.com/seafooler/btcutils-utxo-exp"
 )
 
 // nodeConfig contains all the args, and data required to launch a btcd process

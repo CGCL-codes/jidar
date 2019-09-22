@@ -13,7 +13,7 @@ import (
 	"github.com/btcsuite/btcd/netsync"
 	"github.com/btcsuite/btcd/peer"
 	"github.com/btcsuite/btcd/wire"
-	"github.com/btcsuite/btcutil"
+	btcutil "github.com/seafooler/btcutils-utxo-exp"
 )
 
 // rpcPeer provides a peer for use with the RPC server and implements the

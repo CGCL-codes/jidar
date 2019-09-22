@@ -24,7 +24,7 @@ import (
 	"fmt"
 	"log"
 
-	"github.com/btcsuite/btcutil"
+	btcutil "github.com/seafooler/btcutils-utxo-exp"
 	"github.com/btcsuite/btcd/chaincfg"
 )
 

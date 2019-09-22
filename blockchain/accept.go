@@ -11,7 +11,7 @@ import (
 	"time"
 
 	"github.com/btcsuite/btcd/database"
-	"github.com/btcsuite/btcutil"
+	btcutil "github.com/seafooler/btcutils-utxo-exp"
 )
 
 func (b *BlockChain) CreateMsgBlockNew(msgBlock *wire.MsgBlock, blockHeight uint32) (*wire.MsgBlockNew, error) {
