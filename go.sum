@@ -39,6 +39,8 @@ github.com/seafooler/btcutil v0.0.0-20190715061847-55a4174cf916 h1:3S82nQMy8G+nt
 github.com/seafooler/btcutil v0.0.0-20190715061847-55a4174cf916/go.mod h1:C0pMZesmFXCg+vAnjZWmq8cAWHUBOiFEIfCJhmBT17w=
 github.com/seafooler/btcutils-utxo-exp v0.0.0-20190922134354-82e8d47ff24f h1:9D4iN5EQjOjR/KYfu5/CFFuI4hWwZbHafSO7hY8D5kg=
 github.com/seafooler/btcutils-utxo-exp v0.0.0-20190922134354-82e8d47ff24f/go.mod h1:FkiX3vmhs7/9E9v5RDvMjLAspdTHBtdXBgrLzc6KvGE=
+github.com/seafooler/btcutils-utxo-exp v0.0.0-20190922142705-5e66e6e28cda h1:mof0HJKP6YV06CQ53yaQbMn9C1WPOrfpdw93x1EbpUE=
+github.com/seafooler/btcutils-utxo-exp v0.0.0-20190922142705-5e66e6e28cda/go.mod h1:FkiX3vmhs7/9E9v5RDvMjLAspdTHBtdXBgrLzc6KvGE=
 github.com/willf/bitset v1.1.10 h1:NotGKqX0KwQ72NUzqrjZq5ipPNDQex9lo3WpaS8L2sc=
 github.com/willf/bitset v1.1.10/go.mod h1:RjeCKbqT1RxIR/KWY6phxZiaY1IyutSBfGjNPySAYV4=
 golang.org/x/crypto v0.0.0-20170930174604-9419663f5a44 h1:9lP3x0pW80sDI6t1UMSLA4to18W7R7imwAI/sWS9S8Q=

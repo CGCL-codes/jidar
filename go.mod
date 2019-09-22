@@ -16,8 +16,7 @@ require (
 	github.com/kkdai/bstream v0.0.0-20161212061736-f391b8402d23 // indirect
 	github.com/onsi/ginkgo v1.7.0 // indirect
 	github.com/onsi/gomega v1.4.3 // indirect
-	github.com/seafooler/btcutil v0.0.0-20190715061847-55a4174cf916
-	github.com/seafooler/btcutils-utxo-exp v0.0.0-20190922134354-82e8d47ff24f
+	github.com/seafooler/btcutils-utxo-exp v0.0.0-20190922142705-5e66e6e28cda
 	github.com/willf/bitset v1.1.10 // indirect
 	golang.org/x/crypto v0.0.0-20170930174604-9419663f5a44
 )
