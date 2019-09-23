@@ -1277,8 +1277,12 @@ func (tx *transaction) fetchBlockRow(hash *chainhash.Hash) ([]byte, error) {
 }
 
 func (tx *transaction) fetchBlockNewRow(hash *chainhash.Hash) ([]byte, error) {
-	// Todo ...
-	return nil, nil
+	blockRow := tx.blockNewIdxBucket.Get(hash[:])
+	if blockRow == nil {
+		str := fmt.Sprintf("block %s does not exist", hash)
+		return nil, makeDbErr(database.ErrBlockNotFound, str, nil)
+	}
+	return blockRow, nil
 }
 
 // FetchBlockHeader returns the raw serialized bytes for the block header
@@ -1378,8 +1382,32 @@ func (tx *transaction) FetchBlock(hash *chainhash.Hash) ([]byte, error) {
 }
 
 func (tx *transaction) FetchBlockNew(hash *chainhash.Hash) ([]byte, error) {
-	// Todo ...
-	return nil, nil
+	// Ensure transaction state is valid.
+	if err := tx.checkClosed(); err != nil {
+		return nil, err
+	}
+
+	// When the block is pending to be written on commit return the bytes
+	// from there.
+	if idx, exists := tx.pendingBlocksNew[*hash]; exists {
+		return tx.pendingBlockNewData[idx].bytes, nil
+	}
+
+	// Lookup the location of the block in the files from the block index.
+	blockRow, err := tx.fetchBlockNewRow(hash)
+	if err != nil {
+		return nil, err
+	}
+	location := deserializeBlockLoc(blockRow)
+
+	// Read the block from the appropriate location.  The function also
+	// performs a checksum over the data to detect data corruption.
+	blockBytes, err := tx.db.storeNew.readBlock(hash, location)
+	if err != nil {
+		return nil, err
+	}
+
+	return blockBytes, nil
 }
 
 // FetchBlocks returns the raw serialized bytes for the blocks identified by the

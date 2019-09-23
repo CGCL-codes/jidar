@@ -66,7 +66,7 @@ func (b *BlockChain) CreateMsgBlockNew(msgBlock *wire.MsgBlock, blockHeight uint
 							in.PreviousOutPoint.String()))
 					}
 				} else {
-					// if it is a coinbase, set BlockHeight and IndexInBlock as -1
+					// if it is a coinbase, set BlockHeight and IndexInBlock as 0
 					entry.IndexInBlock = 0
 					entry.BlockHeight = 0
 				}

@@ -1,29 +1,25 @@
-// Copyright (c) 2015-2016 The btcsuite developers
-// Use of this source code is governed by an ISC
-// license that can be found in the LICENSE file.
-
 package main
 
 import (
+	"bytes"
 	"encoding/hex"
-	"errors"
-	btcutil "github.com/seafooler/btcutils-utxo-exp"
-	"time"
-
 	"github.com/btcsuite/btcd/chaincfg/chainhash"
 	"github.com/btcsuite/btcd/database"
+	"github.com/btcsuite/btcd/wire"
+	"time"
+	"errors"
 )
 
-// fetchBlockCmd defines the configuration options for the fetchblock command.
-type fetchBlockCmd struct{}
+type fetchBlockNewCmd struct{}
+
 
 var (
 	// fetchBlockCfg defines the configuration options for the command.
-	fetchBlockCfg = fetchBlockCmd{}
+	fetchBlockNewCfg = fetchBlockNewCmd{}
 )
 
 // Execute is the main entry point for the command.  It's invoked by the parser.
-func (cmd *fetchBlockCmd) Execute(args []string) error {
+func (cmd *fetchBlockNewCmd) Execute(args []string) error {
 	// Setup the global config options and ensure they are valid.
 	if err := setupGlobalConfig(); err != nil {
 		return err
@@ -51,7 +47,7 @@ func (cmd *fetchBlockCmd) Execute(args []string) error {
 	errDB := db.View(func(tx database.Tx) error {
 		log.Infof("Fetching block %s", blockHash)
 		startTime := time.Now()
-		blockBytes, err = tx.FetchBlock(blockHash)
+		blockBytes, err = tx.FetchBlockNew(blockHash)
 		if err != nil {
 			return err
 		}
@@ -60,11 +56,15 @@ func (cmd *fetchBlockCmd) Execute(args []string) error {
 		return nil
 	})
 
-	block, _ := btcutil.NewBlockFromBytes(blockBytes)
+	msgBlockNew := new(wire.MsgBlockNew)
+	err = msgBlockNew.BtcDecode(bytes.NewReader(blockBytes), 0, wire.WitnessEncoding)
+	if err != nil {
+		return err
+	}
 
-	for i, tx := range block.MsgBlock().Transactions {
+	for i, tx := range msgBlockNew.Transactions {
 		log.Infof("The %d th transaction", i)
-		for j, in :=range tx.TxIn {
+		for j, in :=range tx.TxInNew {
 			log.Infof("The %d th in: %v", j, *in)
 		}
 		for j, out :=range tx.TxOut {
@@ -77,6 +77,6 @@ func (cmd *fetchBlockCmd) Execute(args []string) error {
 }
 
 // Usage overrides the usage display for the command.
-func (cmd *fetchBlockCmd) Usage() string {
+func (cmd *fetchBlockNewCmd) Usage() string {
 	return "<block-hash>"
 }

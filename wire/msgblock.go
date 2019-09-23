@@ -157,10 +157,26 @@ func (msg *MsgBlock) Deserialize(r io.Reader) error {
 	return msg.BtcDecode(r, 0, WitnessEncoding)
 }
 
+func (msg *MsgBlockNew) Deserialize(r io.Reader) error {
+	// At the current time, there is no difference between the wire encoding
+	// at protocol version 0 and the stable long-term storage format.  As
+	// a result, make use of BtcDecode.
+	//
+	// Passing an encoding type of WitnessEncoding to BtcEncode for the
+	// MessageEncoding parameter indicates that the transactions within the
+	// block are expected to be serialized according to the new
+	// serialization structure defined in BIP0141.
+	return msg.BtcDecode(r, 0, WitnessEncoding)
+}
+
 // DeserializeNoWitness decodes a block from r into the receiver similar to
 // Deserialize, however DeserializeWitness strips all (if any) witness data
 // from the transactions within the block before encoding them.
 func (msg *MsgBlock) DeserializeNoWitness(r io.Reader) error {
+	return msg.BtcDecode(r, 0, BaseEncoding)
+}
+
+func (msg *MsgBlockNew) DeserializeNoWitness(r io.Reader) error {
 	return msg.BtcDecode(r, 0, BaseEncoding)
 }
 
