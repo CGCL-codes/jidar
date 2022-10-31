@@ -1,11 +1,11 @@
-btcd
+Jidar
 ====
 
 [![Build Status](https://travis-ci.org/btcsuite/btcd.png?branch=master)](https://travis-ci.org/btcsuite/btcd)
 [![ISC License](http://img.shields.io/badge/license-ISC-blue.svg)](http://copyfree.org)
 [![GoDoc](https://img.shields.io/badge/godoc-reference-blue.svg)](http://godoc.org/github.com/btcsuite/btcd)
 
-btcd is an alternative full node bitcoin implementation written in Go (golang).
+Jidar is an implementation for the paper [Jidar: A Jigsaw-like Data Reduction Approach Without Trust Assumptions for Bitcoin System](https://ieeexplore.ieee.org/abstract/document/8885194), which is a fork from Btcd, an alternative full node bitcoin implementation written in Go (golang).
 
 This project is currently under active development and is in a Beta state.  It
 is extremely stable and has been in production use since October 2013.
@@ -24,24 +24,12 @@ ensures all individual transactions admitted to the pool follow the rules
 required by the block chain and also includes more strict checks which filter
 transactions based on miner requirements ("standard" transactions).
 
-One key difference between btcd and Bitcoin Core is that btcd does *NOT* include
-wallet functionality and this was a very intentional design decision.  See the
-blog entry [here](https://blog.conformal.com/btcd-not-your-moms-bitcoin-daemon)
-for more details.  This means you can't actually make or receive payments
-directly with btcd.  That functionality is provided by the
-[btcwallet](https://github.com/btcsuite/btcwallet) and
-[Paymetheus](https://github.com/btcsuite/Paymetheus) (Windows-only) projects
-which are both under active development.
 
 ## Requirements
 
 [Go](http://golang.org) 1.11 or newer.
 
 ## Installation
-
-#### Windows - MSI Available
-
-https://github.com/btcsuite/btcd/releases
 
 #### Linux/BSD/MacOSX/POSIX - Build from Source
 
